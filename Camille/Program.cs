@@ -8,32 +8,19 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 
-
-class Camille
+namespace Camille
 {
-    static void Main(string[] args)
+    class Program
     {
-        X509Certificate2 certificate = new X509Certificate2(File.ReadAllBytes("camille.pfx"), "wasd");
-        var ipEndPoint = new IPEndPoint(IPAddress.Any, 5223);
-        TcpListener listener = new(ipEndPoint);
-        try
+        static void Main(string[] args)
         {
-            listener.Start();
-            TcpClient client = listener.AcceptTcpClient();
-
-            SslStream ns = new SslStream(client.GetStream());
-            ns.AuthenticateAsServer(certificate, false, SslProtocols.Tls, false);
-
-            while (client.Connected)
-            {
-                byte[] msg = new byte[1024];
-                ns.Read(msg, 0, msg.Length);
-                Console.WriteLine(Encoding.Default.GetString(msg).Trim(' '));
-            }
-        }
-        finally
-        {
-            listener.Stop();
+            X509Certificate2 certificate = new X509Certificate2(File.ReadAllBytes("camille.pfx"), "wasd");
+            var ipEndPoint = new IPEndPoint(IPAddress.Any, 5223);
+            
+            XMPPServer server = new XMPPServer(ipEndPoint, certificate);
+            server.Listen();
+            
+            while(true) {}
         }
     }
 }
