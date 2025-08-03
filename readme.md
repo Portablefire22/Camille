@@ -9,6 +9,20 @@ I have absolutely 0 idea on how XMPP works other than it uses XML, and I have ba
 experience creating anything like this. It will be interesting to see if I can actually do this 
 :)
 
+## Security
+
+Not that great to be honest with you. The library that is used by the third-party client 
+is "[as3crypto](https://code.google.com/archive/p/as3crypto/)", an Actionscript3 
+cryptography library that was stated to have "partial TLS 1.0 support" back when TLSv1.2 
+was just one month away from releasing to the public. As a result, this project actively 
+requires deprecated functionality and often ignores clearly stated security warnings. 
+
+
+Could this be improved? Probably yeah, I'm just not focused on it since I don't actually 
+have a way to test it due to a lack of support from the client I am using. The as3-crypto 
+library could be theoretically updated to support TLSv1.3; that one will 
+probably remain on the backburner till atleast this project is done.
+
 ## Name?
 
 League of Legends reference. There is a character called Camille that has blades for legs, and 
