@@ -6,28 +6,28 @@ using System.Xml;
 
 namespace Camille;
 
-public class XMPPServer
+public class XmppServer
 {
     private TcpListener _listener;
     private bool _isSSL = false;
     private X509Certificate2 _certificate;
-    private List<XMPPClient> _clients;
+    private List<XmppClient> _clients;
     private bool _isRunning;
 
-    public XMPPServer(IPEndPoint serverEndPoint)
+    public XmppServer(IPEndPoint serverEndPoint)
     {
         _listener = new TcpListener(serverEndPoint);
 
-        _clients = new List<XMPPClient>();
+        _clients = new List<XmppClient>();
     }
 
-    public XMPPServer(IPEndPoint serverEndPoint, X509Certificate2 certificate)
+    public XmppServer(IPEndPoint serverEndPoint, X509Certificate2 certificate)
     {
         _listener = new TcpListener(serverEndPoint);
         _certificate = certificate;
         _isSSL = true;
         
-        _clients = new List<XMPPClient>();
+        _clients = new List<XmppClient>();
     }
 
     public void Listen()
@@ -56,7 +56,8 @@ public class XMPPServer
                 await ((SslStream)stream).AuthenticateAsServerAsync(_certificate);
             }
 
-            var xmpclient = new XMPPClient(client, stream);
+            var xmpclient = new XmppClient(client, stream);
+            xmpclient.SetDisconnectCallback(RemoveClient);
             _clients.Add(xmpclient);
             Console.WriteLine("Added Client");
         }
@@ -74,8 +75,7 @@ public class XMPPServer
             }
         }
     }
-
-    bool Handshake(Stream stream, string clientId)
+   bool Handshake(Stream stream, string clientId)
     {
         var settings = new XmlReaderSettings
         {
@@ -118,4 +118,12 @@ public class XMPPServer
         Console.WriteLine("Valid handshake"); 
         return true;
     }
+    bool RemoveClient(XmppClient client)
+    {
+        Console.WriteLine("Removing client {0}", client.GetClientId());
+        client.Close();
+        return _clients.Remove(client);
+    }
+    
+ 
 }
