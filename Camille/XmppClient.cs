@@ -7,33 +7,40 @@ namespace Camille;
 
 public class XmppClient
 {
-    private string _clientId;
+    private readonly string _clientId;
 
     private Thread _readThread;
     private Thread _writeThread;
 
-    private Stream _stream;
-    private TcpClient _client;
+    private readonly Stream _stream;
+    private readonly TcpClient _client;
 
     private bool _isRunning;
     
     private Func<XmppClient, bool> _disconnectCallback;
     
-    private List<XmlElement> _writeQueue;
+    private List<XmppElement> _writeQueue;
 
     public XmppClient(TcpClient client, Stream stream)
     {
         _clientId = Guid.NewGuid().ToString();
         _stream = stream;
         _client = client;
+        _writeQueue = [];
         CreateThreads(stream);
     }
 
     public void Close()
     {
         _isRunning = false;
-        _stream.Close();
-        _client.Close();
+        if (_stream.CanRead || _stream.CanWrite)
+        {
+            _stream.Close();
+        }
+        if (_client.Connected)
+        {
+            _client.Close();
+        }
     }
     
     public string GetClientId()
@@ -41,7 +48,7 @@ public class XmppClient
         return _clientId;
     }
 
-    void CreateThreads(Stream stream)
+    private void CreateThreads(Stream stream)
     {
         _isRunning = true;
         _readThread = new Thread(ReadLoop);
@@ -51,7 +58,7 @@ public class XmppClient
         _writeThread.Start();
     }
 
-    void ReadLoop()
+    private void ReadLoop()
     {
         try
         {
@@ -76,7 +83,7 @@ public class XmppClient
         }
     }
 
-    void OnXmlNode(XmlReader reader)
+    private void OnXmlNode(XmlReader reader)
     {
         #if DEBUG 
                 Console.WriteLine(reader.NodeType); 
@@ -89,6 +96,9 @@ public class XmppClient
             case XmlNodeType.Element:
                 OnXmlElement(reader);
                 break;
+            case XmlNodeType.EndElement:
+                OnXmlEndElement(reader);
+                break;
             default:
                 Console.WriteLine("Unknown node: {0}, {1}, {2}, {3}", reader.NodeType.ToString(), reader.Name, reader.Name, reader.AttributeCount); 
                 break;
@@ -100,7 +110,7 @@ public class XmppClient
         _disconnectCallback = callback;
     }
 
-    void OnXmlElement(XmlReader reader)
+    private void OnXmlElement(XmlReader reader)
     {
         #if DEBUG 
             Console.WriteLine("{0}, {1}, {2}, {3}", reader.NodeType.ToString(), reader.Value, reader.NamespaceURI, reader.Name);
@@ -133,30 +143,61 @@ public class XmppClient
         }
     }
 
-    bool Handshake()
+    private void OnXmlEndElement(XmlReader reader)
     {
-        var settings = new XmlWriterSettings();
-        settings.CloseOutput = false;
-        settings.WriteEndDocumentOnClose = false;
-
-        using (XmlWriter w = XmlWriter.Create(_stream, settings))
-        using (XmppWriterDecorator writer = new XmppWriterDecorator(w))
+        #if DEBUG 
+                Console.WriteLine("{0}, {1}, {2}, {3}", reader.NodeType.ToString(), reader.Value, reader.NamespaceURI, reader.Name);
+        #endif
+        try
         {
-            writer.WriteStartElement("stream", "stream", "http://etherx.jabber.org/streams");
-            writer.WriteAttributeString("from", "pvp.net");
-            writer.WriteAttributeString("xmlns", "jabber:client");
-            writer.WriteAttributeString("version", "1.0");
-            writer.WriteAttributeString("id", _clientId);
+            if (reader.Name == "stream:stream")
+            {
+                _disconnectCallback(this);
+                return;
+            }
         }
+        catch (Exception e)
+        {
+            Console.WriteLine(e.ToString());
+        }
+    }
+
+    private bool Handshake()
+    {
+        StreamElement stream = new StreamElement("stream",
+            "http://etherx.jabber.org/streams", 
+            new XmlDocument());
+        stream.ClientId = _clientId;
         
-        Console.WriteLine("Valid handshake"); 
+        _writeQueue.Add(stream);
+        
+        StartTlsElement tls = new StartTlsElement("stream",
+            "http://etherx.jabber.org/streams", 
+            new XmlDocument());
+        _writeQueue.Add(tls);
+        Console.WriteLine("Sent handshake response"); 
         return true;
     }
-    void WriteLoop()
+
+    private void WriteLoop()
     {
-        while (_isRunning)
+        using var writer = new XmppWriter(XmlWriter.Create(_stream));
+        try
         {
-            
+            while (_isRunning)
+            {
+                while (_writeQueue.Count > 0)
+                {
+                    _writeQueue.First().Send(writer);
+                    _writeQueue.RemoveAt(0);
+                }
+                Thread.Sleep(100);
+            }
+        }
+        finally
+        {
+            writer.Close();
+            _disconnectCallback(this);
         }
     }
 }

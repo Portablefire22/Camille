@@ -8,10 +8,10 @@ namespace Camille;
 
 public class XmppServer
 {
-    private TcpListener _listener;
+    private readonly TcpListener _listener;
     private bool _isSSL = false;
-    private X509Certificate2 _certificate;
-    private List<XmppClient> _clients;
+    private readonly X509Certificate2 _certificate;
+    private readonly List<XmppClient> _clients;
     private bool _isRunning;
 
     public XmppServer(IPEndPoint serverEndPoint)
@@ -74,49 +74,6 @@ public class XmppServer
                 _listener.Stop();
             }
         }
-    }
-   bool Handshake(Stream stream, string clientId)
-    {
-        var settings = new XmlReaderSettings
-        {
-            ConformanceLevel = ConformanceLevel.Fragment
-        };
-        using (var reader = XmlReader.Create(stream, settings))
-        {
-            int i = 0;
-            while (reader.Read())
-            {
-                if (i == 1)
-                {
-                    if (reader.Name != "stream:stream" || 
-                        reader.GetAttribute("xmlns") != "jabber:client" || 
-                        reader.GetAttribute("to") != "pvp.net"
-                        )
-                    {
-                        Console.WriteLine("Client did not provide a valid handshake"); 
-                        return false;
-                    }
-                    break;
-                }
-                i++;
-            }
-        }
-
-        XmlWriterSettings writerSettings = new XmlWriterSettings();
-
-        using (XmlWriter writer = XmlWriter.Create(stream, writerSettings))
-        {
-            writer.WriteStartElement("stream:stream");
-            writer.WriteAttributeString("from", "pvp.net");
-            writer.WriteAttributeString("xmlns", "jabber:client");
-            writer.WriteAttributeString("xmlns:stream", "http://etherx.jabber.org/streams");
-            writer.WriteAttributeString("version", "1.0");
-            writer.WriteAttributeString("id", clientId);
-            writer.Close();
-        }
-        
-        Console.WriteLine("Valid handshake"); 
-        return true;
     }
     bool RemoveClient(XmppClient client)
     {

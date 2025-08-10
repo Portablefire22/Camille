@@ -38,7 +38,7 @@ public class XmppWriterDecorator : XmlWriter
         baseWriter.Flush();
     }
 
-    public override string LookupPrefix(string ns)
+    public override string LookupPrefix(string? ns)
     {
         return baseWriter.LookupPrefix(ns);
     }
@@ -141,7 +141,7 @@ public class XmppWriterDecorator : XmlWriter
         baseWriter.WriteRaw(buffer, index, count);
     }
 
-    public override void WriteStartAttribute(string prefix, string localName, string ns)
+    public override void WriteStartAttribute(string? prefix, string localName, string? ns)
     {
         if (IsSuspended)
             return;
@@ -158,7 +158,7 @@ public class XmppWriterDecorator : XmlWriter
         baseWriter.WriteStartDocument();
     }
 
-    public override void WriteStartElement(string prefix, string localName, string ns)
+    public override void WriteStartElement(string? prefix, string localName, string? ns)
     {
         if (IsSuspended)
             return;
