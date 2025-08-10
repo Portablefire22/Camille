@@ -7,7 +7,7 @@ namespace Camille;
 
 public class XmppClient
 {
-    private readonly string _clientId;
+    private string _clientId;
 
     private Thread _readThread;
     private Thread _writeThread;
@@ -117,23 +117,31 @@ public class XmppClient
         #endif
         try
         {
-            if (reader.Name == "stream:stream")
-            {
-                if (!Handshake())
-                {
-                    _disconnectCallback(this);
-                }
-                return;
-            }
-            var factory = new XmlElementFactory();
-            var element = factory.CreateElement(reader);
-            switch (element.Name)
+            switch (reader.Name)
             {
                 case "stream:stream":
-                    Console.WriteLine("Stream");
-                    break;    
+                    string? id = reader.GetAttribute("id");
+                    bool handshake = false;
+                    if (id != null)
+                    {
+                        _clientId = id;
+                        handshake = Handshake(false);
+                    }
+                    else
+                    {
+                        handshake = Handshake(true);
+                    }
+
+                    if (!handshake)
+                    {
+                        _disconnectCallback(this);
+                    }
+                    return;
+                case "auth":
+                    OnAuthElement(reader);
+                    break;
                 default: 
-                    Console.WriteLine("Name: {0}", element.Name);
+                    Console.WriteLine("Name: {0}", reader.Name);
                     break;
             }
         }
@@ -162,34 +170,54 @@ public class XmppClient
         }
     }
 
-    private bool Handshake()
+    private void OnAuthElement(XmlReader element)
+    {
+        var response = new SuccessElement(null, null, new XmlDocument());
+        
+        _writeQueue.Add(response);
+    }
+
+    private bool Handshake(bool isFirstTime)
     {
         StreamElement stream = new StreamElement("stream",
-            "http://etherx.jabber.org/streams", 
+            "http://etherx.jabber.org/streams",
             new XmlDocument());
-        stream.ClientId = _clientId;
-        
+        if (isFirstTime)
+        {
+            stream.ClientId = _clientId;
+        }
+
         _writeQueue.Add(stream);
-        
-        StartTlsElement tls = new StartTlsElement("stream",
-            "http://etherx.jabber.org/streams", 
-            new XmlDocument());
-        _writeQueue.Add(tls);
+
+        if (isFirstTime)
+        {
+            StartTlsElement tls = new StartTlsElement("stream",
+                "http://etherx.jabber.org/streams",
+                new XmlDocument());
+            _writeQueue.Add(tls);
+        }
+        else
+        {
+            BlankFeaturesElement features = new BlankFeaturesElement("stream", null, new XmlDocument());
+            _writeQueue.Add(features);
+        }
         Console.WriteLine("Sent handshake response"); 
         return true;
     }
 
     private void WriteLoop()
     {
-        using var writer = new XmppWriter(XmlWriter.Create(_stream));
+        using var writer = new StreamWriter(_stream);
         try
         {
             while (_isRunning)
             {
                 while (_writeQueue.Count > 0)
                 {
+                    writer.Flush();
                     _writeQueue.First().Send(writer);
                     _writeQueue.RemoveAt(0);
+                    writer.Flush();
                 }
                 Thread.Sleep(100);
             }

@@ -4,24 +4,16 @@ namespace Camille;
 
 public class StartTlsElement(string? prefix, string? namespaceUri, XmlDocument doc) : XmppElement(prefix, "stream", namespaceUri, doc)
 {
-    public override void Send(XmppWriter writer)
+    public override void Send(StreamWriter writer)
     {
-        writer.WriteStartElement(Prefix, "features", NamespaceURI);
-        writer.WriteStartElement("starttls");
-        writer.WriteAttributeString("xmnls", "urn:ietf:params:xml:ns:xmpp-tls");
-        writer.WriteStartElement( "required");
-        writer.WriteEndElement();
-        writer.WriteEndElement();
-        writer.WriteStartElement("mechanisms");
-        writer.WriteAttributeString("xmnls", "urn:ietf:params:xml:ns:xmpp-sasl");
-        writer.WriteStartElement("mechanism");
-        writer.WriteValue("DIGEST-MD5");
-        writer.WriteEndElement();
-        writer.WriteStartElement("mechanism");
-        writer.WriteValue("PLAIN");
-        writer.WriteEndElement();
-        writer.WriteEndElement();
-        writer.WriteEndElement();
-        writer.Flush();
+        
+        string xml = "<" + Prefix + ":features>" 
+            + "<mechanisms xmlns=\"urn:ietf:params:xml:ns:xmpp-sasl\">"
+            + "<mechanism>PLAIN</mechanism>" 
+            + "<mechanism>ANONYMOUS</mechanism>"
+            + "<mechanism>EXTERNAL</mechanism>"
+            + "</mechanisms>" 
+        + "</" + Prefix + ":features>";
+        writer.Write(xml);
     }
 }

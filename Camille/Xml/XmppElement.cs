@@ -6,5 +6,5 @@ public abstract class XmppElement(string? prefix, string localName, string? name
     : XmlElement(prefix, localName, namespaceUri, doc)
 {
     
-    public abstract void Send(XmppWriter writer);
+    public abstract void Send(StreamWriter writer);
 }

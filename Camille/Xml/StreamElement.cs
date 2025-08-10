@@ -18,13 +18,19 @@ public class StreamElement(string? prefix, string? namespaceUri, XmlDocument doc
     /// the given writer will close the stream tag, closing the underlying stream.
     /// </summary>
     /// <param name="writer"></param>
-    public override void Send(XmppWriter writer)
+    public override void Send(StreamWriter writer)
     {
-        writer.WriteStartElement(Prefix, "stream", NamespaceURI);
-        writer.WriteAttributeString("from", "pvp.net");
-        writer.WriteAttributeString("xmlns", "jabber:client");
-        writer.WriteAttributeString("version", "1.0");
-        writer.WriteAttributeString("id", _clientId); 
-        writer.Flush();
+        string xml = "<" + Prefix + ":stream "
+                     + "xmlns=\"jabber:client\" "
+                     + " xmlns:" + Prefix + "=\"" + NamespaceURI + "\" "
+                     + "from=\"pvp.net\" "
+                     + "version=\"1.0\" ";
+        if (_clientId != null)
+        {
+            xml += "id=\"" + ClientId + "\"";
+        }
+        xml += ">"; 
+        
+        writer.Write(xml);
     }
 }
