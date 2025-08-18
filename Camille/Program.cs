@@ -19,8 +19,11 @@ namespace Camille
             
             XmppServer server = new XmppServer(ipEndPoint, certificate);
             server.Listen();
-            
-            while(true) {}
+
+            while (true)
+            {
+                Thread.Sleep(10000);
+            }
         }
     }
 }

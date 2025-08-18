@@ -42,13 +42,13 @@ public class XmppServer
         try
         {
             Console.WriteLine("Accepting Client");
-            TcpListener listener = asyncResult.AsyncState as TcpListener;
+            var listener = asyncResult.AsyncState as TcpListener;
             if (listener == null)
             {
                 return;
             }
 
-            TcpClient client = listener.EndAcceptTcpClient(asyncResult);
+            var client = listener.EndAcceptTcpClient(asyncResult);
             Stream stream = client.GetStream();
             if (_isSSL && _certificate != null)
             {
@@ -75,12 +75,10 @@ public class XmppServer
             }
         }
     }
-    bool RemoveClient(XmppClient client)
+    private bool RemoveClient(XmppClient client)
     {
         Console.WriteLine("Removing client {0}", client.GetClientId());
-        client.Close();
+        client.Close(true);
         return _clients.Remove(client);
     }
-    
- 
 }

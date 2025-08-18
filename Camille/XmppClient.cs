@@ -15,7 +15,9 @@ public class XmppClient
     private readonly Stream _stream;
     private readonly TcpClient _client;
 
+    private bool _handshakeCompleted = false;
     private bool _isRunning;
+
     
     private Func<XmppClient, bool> _disconnectCallback;
     
@@ -30,10 +32,10 @@ public class XmppClient
         CreateThreads(stream);
     }
 
-    public void Close()
+    public void Close(bool closeStream)
     {
         _isRunning = false;
-        if (_stream.CanRead || _stream.CanWrite)
+        if (closeStream && (_stream.CanRead || _stream.CanWrite))
         {
             _stream.Close();
         }
@@ -51,36 +53,12 @@ public class XmppClient
     private void CreateThreads(Stream stream)
     {
         _isRunning = true;
-        _readThread = new Thread(ReadLoop);
+        
         _writeThread = new Thread(WriteLoop);
-
+        _readThread = new Thread(ReadLoop);
+        
         _readThread.Start();
         _writeThread.Start();
-    }
-
-    private void ReadLoop()
-    {
-        try
-        {
-            var settings = new XmlReaderSettings
-            {
-                ConformanceLevel = ConformanceLevel.Fragment
-            };
-            using (var reader = XmlReader.Create(_stream, settings))
-            {
-                while (reader.Read() && _isRunning)
-                {
-                    OnXmlNode(reader);
-                }
-            }
-        }
-        catch (Exception e)
-        {   
-            #if (DEBUG)
-                Console.WriteLine(e.ToString());
-            #endif
-            _disconnectCallback(this);
-        }
     }
 
     private void OnXmlNode(XmlReader reader)
@@ -108,6 +86,16 @@ public class XmppClient
     public void SetDisconnectCallback(Func<XmppClient, bool> callback)
     {
         _disconnectCallback = callback;
+    }
+
+    public Stream GetStream()
+    {
+        return _stream;
+    }
+
+    public TcpClient GetTcpClient()
+    {
+        return _client;
     }
 
     private void OnXmlElement(XmlReader reader)
@@ -140,6 +128,9 @@ public class XmppClient
                 case "auth":
                     OnAuthElement(reader);
                     break;
+                case "iq":
+                    OnIqStanza(reader);
+                    break;
                 default: 
                     Console.WriteLine("Name: {0}", reader.Name);
                     break;
@@ -151,6 +142,50 @@ public class XmppClient
         }
     }
 
+    private void OnIqStanza(XmlReader reader)
+    {
+        var type = reader.GetAttribute("type");
+        if (type == null)
+        {
+            throw new XmlException("IQ stanza did not have a type");
+        }
+        switch (type)
+        {
+            case "get":
+                OnGetIqStanza(reader);
+                break;
+            default:
+                throw new XmlException("Invalid IQ Stanza type");
+        } 
+    }
+
+    private void OnGetIqStanza(XmlReader reader)
+    {
+        var id = reader.GetAttribute("id");
+        if (id == null)
+        {
+            throw new XmlException("invalid iq stanza id");
+        }
+        // Now we need the query
+        if (!reader.Read())
+        {
+            throw new XmlException("Could not read IQ contents");
+        }
+
+        switch (reader.NamespaceURI)
+        {
+            case "jabber:iq:register":
+                var res = new RegisterResponseElement("stream",
+                    "",
+                    new XmlDocument());
+                res.Id = id;
+                _writeQueue.Add(res); 
+                break;
+            default:
+                throw new XmlException("Invalid namespace uri");
+        }
+    }
+    
     private void OnXmlEndElement(XmlReader reader)
     {
         #if DEBUG 
@@ -173,23 +208,19 @@ public class XmppClient
     private void OnAuthElement(XmlReader element)
     {
         var response = new SuccessElement(null, null, new XmlDocument());
-        
+        _handshakeCompleted = true;
         _writeQueue.Add(response);
     }
 
     private bool Handshake(bool isFirstTime)
     {
+        _readThread.Interrupt();
         StreamElement stream = new StreamElement("stream",
             "http://etherx.jabber.org/streams",
             new XmlDocument());
-        if (isFirstTime)
-        {
-            stream.ClientId = _clientId;
-        }
-
         _writeQueue.Add(stream);
 
-        if (isFirstTime)
+        if (!_handshakeCompleted)
         {
             StartTlsElement tls = new StartTlsElement("stream",
                 "http://etherx.jabber.org/streams",
@@ -198,11 +229,40 @@ public class XmppClient
         }
         else
         {
-            BlankFeaturesElement features = new BlankFeaturesElement("stream", null, new XmlDocument());
+            var features = new RegisterFeatures("stream", null, new XmlDocument());
             _writeQueue.Add(features);
         }
         Console.WriteLine("Sent handshake response"); 
         return true;
+    }
+    private void ReadLoop()
+    {
+        var settings = new XmlReaderSettings
+        {
+            ConformanceLevel = ConformanceLevel.Fragment,
+            CloseInput = false
+        };
+        while (_isRunning)
+        {
+            try
+            {
+                using (var reader = XmlReader.Create(_stream, settings))
+                {
+                    while (_isRunning)
+                    {
+                        while (reader.Read())
+                        {
+                            OnXmlNode(reader);
+                        }
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine(e);
+                _disconnectCallback(this);
+            }
+        }
     }
 
     private void WriteLoop()
@@ -212,15 +272,21 @@ public class XmppClient
         {
             while (_isRunning)
             {
-                while (_writeQueue.Count > 0)
+                while (_writeQueue.Count > 0 && _isRunning)
                 {
                     writer.Flush();
-                    _writeQueue.First().Send(writer);
+                    var ele = _writeQueue.First();
+                    ele.Send(writer);
                     _writeQueue.RemoveAt(0);
                     writer.Flush();
                 }
+
                 Thread.Sleep(100);
             }
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine(e.ToString());
         }
         finally
         {
