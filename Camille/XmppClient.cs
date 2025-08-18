@@ -108,19 +108,7 @@ public class XmppClient
             switch (reader.Name)
             {
                 case "stream:stream":
-                    string? id = reader.GetAttribute("id");
-                    bool handshake = false;
-                    if (id != null)
-                    {
-                        _clientId = id;
-                        handshake = Handshake(false);
-                    }
-                    else
-                    {
-                        handshake = Handshake(true);
-                    }
-
-                    if (!handshake)
+                    if (!Handshake())
                     {
                         _disconnectCallback(this);
                     }
@@ -212,7 +200,7 @@ public class XmppClient
         _writeQueue.Add(response);
     }
 
-    private bool Handshake(bool isFirstTime)
+    private bool Handshake()
     {
         _readThread.Interrupt();
         StreamElement stream = new StreamElement("stream",
