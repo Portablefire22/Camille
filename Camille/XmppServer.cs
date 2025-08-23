@@ -3,6 +3,7 @@ using System.Net.Security;
 using System.Net.Sockets;
 using System.Security.Cryptography.X509Certificates;
 using System.Xml;
+using Microsoft.Extensions.Configuration;
 
 namespace Camille;
 
@@ -10,14 +11,19 @@ public class XmppServer
 {
     private readonly TcpListener _listener;
     private bool _isSSL = false;
-    private readonly X509Certificate2 _certificate;
+    private readonly X509Certificate2? _certificate;
     private readonly List<XmppClient> _clients;
     private bool _isRunning;
 
+    public static IConfigurationRoot ConfigurationRoot;
+    
     public XmppServer(IPEndPoint serverEndPoint)
     {
         _listener = new TcpListener(serverEndPoint);
 
+        var builder = new ConfigurationBuilder().AddJsonFile($"appsettings.json", false, true);
+        ConfigurationRoot = builder.Build();
+        
         _clients = new List<XmppClient>();
     }
 
@@ -26,6 +32,9 @@ public class XmppServer
         _listener = new TcpListener(serverEndPoint);
         _certificate = certificate;
         _isSSL = true;
+        
+        var builder = new ConfigurationBuilder().AddJsonFile("appsettings.json", false, true);
+        ConfigurationRoot = builder.Build();
         
         _clients = new List<XmppClient>();
     }
