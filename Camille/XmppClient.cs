@@ -1,5 +1,6 @@
 ﻿using System.Net.Http.Headers;
 using System.Net.Sockets;
+using System.Security.Authentication;
 using System.Text;
 using System.Xml;
 using Camille.Xmpp;
@@ -24,7 +25,7 @@ public class XmppClient
     private bool _isRunning = true;
 
     private BasicJid? _jid = null;
-    private MySqlConnection _sqlConnection;
+    private readonly MySqlConnection _sqlConnection;
     
     private Func<XmppClient, bool> _disconnectCallback;
     
@@ -159,11 +160,88 @@ public class XmppClient
             case "get":
                 OnGetIqStanza(reader);
                 break;
+            case "set":
+                OnSetIqStanza(reader);
+                break;
             default:
                 throw new XmlException("Invalid IQ Stanza type");
         } 
     }
 
+    private void OnSetIqStanza(XmlReader reader)
+    {
+        var id = reader.GetAttribute("id");
+        if (id == null)
+        {
+            throw new XmlException("invalid iq stanza id");
+        }
+
+        if (!reader.Read())
+        {
+            throw new XmlException("could not read IQ stanza contents");
+        }
+
+        switch (reader.Name)
+        {
+            case "bind":
+                OnBindResource(reader, id);
+                break;
+            case "session":
+                OnSession(reader, id);
+                break;
+            default:
+                throw new XmlException("could not get iq stanza contents");
+        }
+    }
+
+    private void OnSession(XmlReader reader, string id)
+    {
+        if (reader.NamespaceURI != "urn:ietf:params:xml:ns:xmpp-session")
+        {
+            throw new XmlException("session stanza has an invalid namespace");
+        }
+
+        if (id.Length == 0)
+        {
+            throw new ArgumentException("id cannot be a zero length");
+        }
+
+        var iqSession = new IqSessionElement("", "", new XmlDocument())
+        {
+            Id = id
+        };
+        
+        _writeQueue.Add(iqSession);
+    }
+    
+    private void OnBindResource(XmlReader reader, string id)
+    {
+        if (reader.NamespaceURI != "urn:ietf:params:xml:ns:xmpp-bind")
+        {
+            throw new XmlException("bind stanza has an incorrect namespace");
+        }
+
+        if (_jid == null)
+        {
+            throw new AuthenticationException("invalid JID");
+        }
+        
+        // Get what the resource is
+        if (!reader.Read() && reader.Name != "resource")
+        {
+            throw new XmlException("could not read contained resource");
+        }
+
+        var iqJid = new IqJidElement("stream", null, new XmlDocument())
+        {
+            Id = id,
+            ClientId = _clientId,
+            Jid = _jid.Jid
+        };
+        
+        _writeQueue.Add(iqJid);
+    }
+    
     private void OnGetIqStanza(XmlReader reader)
     {
         var id = reader.GetAttribute("id");

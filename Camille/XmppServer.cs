@@ -4,16 +4,19 @@ using System.Net.Sockets;
 using System.Security.Cryptography.X509Certificates;
 using System.Xml;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 
 namespace Camille;
 
 public class XmppServer
 {
     private readonly TcpListener _listener;
-    private bool _isSSL = false;
+    private bool _isSsl;
     private readonly X509Certificate2? _certificate;
     private readonly List<XmppClient> _clients;
     private bool _isRunning;
+
+    private readonly ILogger _logger;
 
     public static IConfigurationRoot ConfigurationRoot;
     
@@ -24,6 +27,9 @@ public class XmppServer
         var builder = new ConfigurationBuilder().AddJsonFile($"appsettings.json", false, true);
         ConfigurationRoot = builder.Build();
         
+        using ILoggerFactory factory = LoggerFactory.Create(build => build.AddConsole());
+        _logger = factory.CreateLogger("Camille");
+        
         _clients = new List<XmppClient>();
     }
 
@@ -31,14 +37,17 @@ public class XmppServer
     {
         _listener = new TcpListener(serverEndPoint);
         _certificate = certificate;
-        _isSSL = true;
+        _isSsl = true;
         
         var builder = new ConfigurationBuilder().AddJsonFile("appsettings.json", false, true);
         ConfigurationRoot = builder.Build();
         
+        using ILoggerFactory factory = LoggerFactory.Create(build => build.AddConsole());
+        _logger = factory.CreateLogger("Camille");
+        
         _clients = new List<XmppClient>();
     }
-
+    
     public void Listen()
     {
         _listener.Start();
@@ -50,7 +59,6 @@ public class XmppServer
     {
         try
         {
-            Console.WriteLine("Accepting Client");
             var listener = asyncResult.AsyncState as TcpListener;
             if (listener == null)
             {
@@ -58,8 +66,12 @@ public class XmppServer
             }
 
             var client = listener.EndAcceptTcpClient(asyncResult);
+
+            var remoteEndPoint = client.Client.RemoteEndPoint as IPEndPoint;
+            _logger.LogInformation("Accepting Client {addr}", remoteEndPoint.Address);
+            
             Stream stream = client.GetStream();
-            if (_isSSL && _certificate != null)
+            if (_isSsl && _certificate != null)
             {
                 stream = new SslStream(stream);
                 await ((SslStream)stream).AuthenticateAsServerAsync(_certificate);
@@ -68,7 +80,7 @@ public class XmppServer
             var xmpclient = new XmppClient(client, stream);
             xmpclient.SetDisconnectCallback(RemoveClient);
             _clients.Add(xmpclient);
-            Console.WriteLine("Added Client");
+            _logger.LogInformation("Added Client");
         }
         finally
         {
@@ -86,7 +98,7 @@ public class XmppServer
     }
     private bool RemoveClient(XmppClient client)
     {
-        Console.WriteLine("Removing client {0}", client.GetClientId());
+        _logger.LogInformation("Removing client {clientId}", client.GetClientId());
         client.Close(true);
         return _clients.Remove(client);
     }
