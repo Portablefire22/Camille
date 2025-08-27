@@ -6,6 +6,7 @@ using System.Xml;
 using Camille.Xmpp;
 using Microsoft.Extensions.Logging;
 using MySqlConnector;
+using StackExchange.Redis;
 
 namespace Camille;
 
@@ -16,6 +17,9 @@ public class XmppClient
     private readonly Thread _readThread;
     private readonly Thread _writeThread;
 
+    private ConnectionMultiplexer _redis;
+    private IDatabase _db;
+    
     private readonly Stream _stream;
     private readonly TcpClient _client;
 
@@ -40,18 +44,27 @@ public class XmppClient
         _stream = stream;
         _client = client;
         
+        // Connect to main shared DB
         var builder = new MySqlConnectionStringBuilder()
         {
             Server = XmppServer.ConfigurationRoot["databaseSource"],
             UserID = XmppServer.ConfigurationRoot["databaseUsername"],
             Password = XmppServer.ConfigurationRoot["databasePassword"],
-            Database= "nexus",
+            Database = XmppServer.ConfigurationRoot["databaseName"],
             Pooling = true,
         };
         var connectionString = builder.ConnectionString;
 
         _sqlConnection = new MySqlConnection(connectionString);
         _sqlConnection.Open();
+        
+        // Connect to Camille only Redis server
+        _redis = ConnectionMultiplexer.Connect("localhost");
+        _db = _redis.GetDatabase();
+
+        SubscribeToChannel(_clientId);
+        _redis.GetSubscriber()
+            .Publish("wa", new Message("chat", "m_5", "lilith@pvp.net", "test@pvp.net", "Hello, World!").ToJson());
         
         _writeThread = new Thread(WriteLoop);
         _readThread = new Thread(ReadLoop);
@@ -60,6 +73,11 @@ public class XmppClient
         _writeThread.Start();
     }
 
+    private void SubscribeToChannel(string channel)
+    {
+        _redis.GetSubscriber().Subscribe(channel).OnMessage(OnMessage);
+    }
+    
     public void Close(bool closeStream)
     {
         _isRunning = false;
@@ -79,6 +97,11 @@ public class XmppClient
         return _clientId;
     }
 
+    private void OnMessage(ChannelMessage msg)
+    {
+        _logger.LogInformation(msg.ToString());
+    }
+    
     private void OnXmlNode(XmlReader reader)
     {
         #if DEBUG 
@@ -206,10 +229,7 @@ public class XmppClient
             throw new ArgumentException("id cannot be a zero length");
         }
 
-        var iqSession = new IqSessionElement("", "", new XmlDocument())
-        {
-            Id = id
-        };
+        var iqSession = new IqSessionElement(id);
         
         _writeQueue.Add(iqSession);
     }
@@ -232,12 +252,7 @@ public class XmppClient
             throw new XmlException("could not read contained resource");
         }
 
-        var iqJid = new IqJidElement("stream", null, new XmlDocument())
-        {
-            Id = id,
-            ClientId = _clientId,
-            Jid = _jid.Jid
-        };
+        var iqJid = new IqJidElement(id, _jid.Jid, _clientId);
         
         _writeQueue.Add(iqJid);
     }
@@ -258,10 +273,7 @@ public class XmppClient
         switch (reader.NamespaceURI)
         {
             case "jabber:iq:register":
-                var res = new RegisterResponseElement("stream",
-                    "",
-                    new XmlDocument());
-                res.Id = id;
+                var res = new RegisterResponseElement(id);
                 _writeQueue.Add(res); 
                 break;
             default:
@@ -356,7 +368,7 @@ public class XmppClient
 
     private void OnAuthSuccess()
     {
-        var response = new SuccessElement(null, null, new XmlDocument());
+        var response = new SuccessElement();
         _handshakeCompleted = true;
         _writeQueue.Add(response);
     }
@@ -369,20 +381,17 @@ public class XmppClient
     private bool Handshake()
     {
         StreamElement stream = new StreamElement("stream",
-            "http://etherx.jabber.org/streams",
-            new XmlDocument());
+            "http://etherx.jabber.org/streams", _clientId);
         _writeQueue.Add(stream);
 
         if (!_handshakeCompleted)
         {
-            StartTlsElement tls = new StartTlsElement("stream",
-                "http://etherx.jabber.org/streams",
-                new XmlDocument());
+            StartTlsElement tls = new StartTlsElement("stream");
             _writeQueue.Add(tls);
         }
         else
         {
-            var features = new RegisterFeatures("stream", null, new XmlDocument());
+            var features = new RegisterFeatures("stream");
             _writeQueue.Add(features);
         }
         _logger.LogInformation("Successful handshake response"); 

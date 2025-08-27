@@ -2,7 +2,7 @@
 
 namespace Camille;
 
-public class SuccessElement(string? prefix, string? namespaceUri, XmlDocument doc) : XmppElement(prefix, "stream", namespaceUri, doc)
+public class SuccessElement() : XmppElement()
 {
     /// <summary>
     /// Sends the StreamElement to the XmppWriter's given stream. Closing

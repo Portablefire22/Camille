@@ -2,7 +2,7 @@
 
 namespace Camille;
 
-public class BlankFeaturesElement(string? prefix, string? namespaceUri, XmlDocument doc) : XmppElement(prefix, "stream", namespaceUri, doc)
+public class BlankFeaturesElement(string prefix) : XmppElement()
 {
     /// <summary>
     /// Sends the StreamElement to the XmppWriter's given stream. Closing
@@ -11,7 +11,7 @@ public class BlankFeaturesElement(string? prefix, string? namespaceUri, XmlDocum
     /// <param name="writer"></param>
     public override void Send(StreamWriter writer)
     {
-        string xml = "<" + Prefix + ":features/>";
+        string xml = "<" + prefix + ":features/>";
         writer.Write(xml);
     }
 }
