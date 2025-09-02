@@ -10,7 +10,7 @@ namespace Camille
             X509Certificate2 certificate = new X509Certificate2(File.ReadAllBytes("camille.pfx"), "wasd");
             var ipEndPoint = new IPEndPoint(IPAddress.Any, 5223);
             
-            XmppServer server = new XmppServer(ipEndPoint);
+            XmppServer server = new XmppServer(ipEndPoint, certificate);
             server.Listen();
 
             while (true)

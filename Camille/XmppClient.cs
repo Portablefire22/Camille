@@ -3,6 +3,7 @@ using System.Net.Sockets;
 using System.Security.Authentication;
 using System.Text;
 using System.Xml;
+using Camille.Json;
 using Camille.Xmpp;
 using Microsoft.Extensions.Logging;
 using MySqlConnector;
@@ -25,11 +26,13 @@ public class XmppClient
 
     private readonly ILogger _logger;
     
-    private bool _handshakeCompleted = false;
+    private bool _handshakeCompleted;
     private bool _isRunning = true;
 
-    private BasicJid? _jid = null;
+    private BasicJid? _jid;
     private readonly MySqlConnection _sqlConnection;
+
+    private Presence? _presence;
     
     private Func<XmppClient, bool> _disconnectCallback;
     
@@ -62,10 +65,6 @@ public class XmppClient
         _redis = ConnectionMultiplexer.Connect("localhost");
         _db = _redis.GetDatabase();
 
-        SubscribeToChannel(_clientId);
-        _redis.GetSubscriber()
-            .Publish("wa", new Message("chat", "m_5", "lilith@pvp.net", "test@pvp.net", "Hello, World!").ToJson());
-        
         _writeThread = new Thread(WriteLoop);
         _readThread = new Thread(ReadLoop);
         
@@ -75,7 +74,7 @@ public class XmppClient
 
     private void SubscribeToChannel(string channel)
     {
-        _redis.GetSubscriber().Subscribe(channel).OnMessage(OnMessage);
+        _redis.GetSubscriber().Subscribe(channel).OnMessage(OnRedisMessage);
     }
     
     public void Close(bool closeStream)
@@ -96,11 +95,6 @@ public class XmppClient
     {
         return _clientId;
     }
-
-    private void OnMessage(ChannelMessage msg)
-    {
-        _logger.LogInformation(msg.ToString());
-    }
     
     private void OnXmlNode(XmlReader reader)
     {
@@ -119,7 +113,7 @@ public class XmppClient
                 OnXmlEndElement(reader);
                 break;
             default:
-                _logger.LogError("Unknown node: {type}, {name}, {attributeCount}", reader.NodeType.ToString(), reader.Name, reader.AttributeCount); 
+                _logger.LogError("Unknown node: {type}, {name}, {attributeCount}, {value}", reader.NodeType.ToString(), reader.Name, reader.AttributeCount, reader.Value); 
                 break;
         }
     }
@@ -129,16 +123,77 @@ public class XmppClient
         _disconnectCallback = callback;
     }
 
-    public Stream GetStream()
+    private void OnRedisMessage(ChannelMessage msg)
     {
-        return _stream;
+        // Being here means the client should receive this information
+        _logger.LogInformation(msg.ToString());
+        var ms = RedisMessage.FromJson(msg.Message.ToString());
+        if (ms == null)
+        {
+            _logger.LogCritical("Invalid Redis Message");
+            return;
+        };
+        switch (ms.Type)
+        {
+            case "message":
+                OnMessage(Message.FromJson(ms.Object));
+                break;
+            case "presence":
+                OnPresence(Presence.FromJson(ms.Object));
+                break;
+            default:
+                _logger.LogCritical("Unknown redis message type {type}", ms.Type);
+                break;
+        }
     }
 
-    public TcpClient GetTcpClient()
+    public void OnMessage(Message msg)
     {
-        return _client;
+        _writeQueue.Add(msg);
     }
 
+    public void OnPresence(Presence msg)
+    {
+        _writeQueue.Add(msg);
+    }
+    
+    /// <summary>
+    /// Creates a new Message instance from the given XmlReader and publishes the result to Redis on the channel
+    /// determined by the message's "to" attribute 
+    /// </summary>
+    /// <param name="reader">Client's XmlReader from readThread</param>
+    /// <exception cref="Exception">Throws exception if the active client does not have a valid JID or
+    /// if the read message does not contain a type, recipient, or is generally malformed</exception>
+    private void OnMessageElement(XmlReader reader)
+    {
+        if (_jid == null || _jid.Jid.Length == 0) throw new Exception("invalid client JID");
+        var msg = new Message(reader);
+        var recipient = msg.GetRecipient();
+        if (recipient == null)
+        {
+            _logger.LogCritical("Message does not contain a recipient!");
+            return;
+        }
+
+        if (msg.GetSender() == null) msg.SetSender(_jid.Jid);
+        _redis.GetSubscriber().Publish(recipient, new RedisMessage("message", msg.ToJson()).ToJson());
+    }
+
+    private void OnPresenceElement(XmlReader reader)
+    {
+        if (_jid == null || _jid.Jid.Length == 0) throw new Exception("invalid client JID");
+        var presence = new Presence(reader);
+        var recipient = presence.GetRecipient();
+        if (recipient == null)
+        {
+            _logger.LogTrace("presence does not contain a recipient!");
+            _presence = presence;
+            return;
+        }
+        if (presence.GetSender() == null) presence.SetSender(_jid.Jid);
+        _redis.GetSubscriber().Publish(recipient, new RedisMessage("presence", presence.ToJson()).ToJson());
+    }
+    
     private void OnXmlElement(XmlReader reader)
     {
         #if DEBUG 
@@ -159,6 +214,12 @@ public class XmppClient
                     break;
                 case "iq":
                     OnIqStanza(reader);
+                    break;
+                case "message":
+                    OnMessageElement(reader);
+                    break;
+                case "presence":
+                    OnPresenceElement(reader);
                     break;
                 default: 
                     _logger.LogDebug("Name: {name}", reader.Name);
@@ -253,6 +314,11 @@ public class XmppClient
         }
 
         var iqJid = new IqJidElement(id, _jid.Jid, _clientId);
+       
+        SubscribeToChannel(_jid.Jid);
+
+        reader.Read();
+        _logger.LogInformation("Bound resource '{0}'", reader.Value);
         
         _writeQueue.Add(iqJid);
     }
@@ -325,7 +391,6 @@ public class XmppClient
             return false;
         }
        
-        var sql = "SELECT username, password FROM users WHERE username = {0}";
         var cmd = _sqlConnection.CreateCommand();
         cmd.CommandText = @"SELECT username, password FROM users WHERE username=@name AND password=@password";
         cmd.Parameters.Add(new MySqlParameter("name", MySqlDbType.VarChar) {Value = _jid.Username});
